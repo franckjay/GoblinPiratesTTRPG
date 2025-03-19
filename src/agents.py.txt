@@ -1,0 +1,49 @@
+from abc import ABC, abstractmethod
+
+class GameMasterAgent(ABC):
+    """
+    Base class for the Game Master agent.
+    """
+    
+    @abstractmethod
+    def generate_character(self, origin_story: str, game_rules: str):
+        pass
+    
+    @abstractmethod
+    def create_initial_narrative(self, character_stories: list, game_rules: str):
+        pass
+
+class PlayerCharacterCreation(GameMasterAgent):
+    def generate_character(self, origin_story: str, game_rules: str):
+        """Simulates calling an LLM to generate character stats based on backstory."""
+        print(f"Calling LLM: Generate a goblin character based on {origin_story}")
+        return PlayerCharacter("Goblin Name", origin_story, random.randint(1, 3), random.randint(1, 3), random.randint(1, 3), "Rusty Cutlass")
+
+class NarrativeAgent(GameMasterAgent):
+    def create_initial_narrative(self, character_stories: list, game_rules: str):
+        """Simulates calling an LLM to create an initial game scenario."""
+        print(f"Calling LLM: Create a fun and humorous RPG scenario for the goblins.")
+        return "Your goblins are on a mission to steal the Moon King's golden crown!"
+
+class BuildTargetShipAgent(GameMasterAgent):
+    def generate_target_ship(self, ship_difficulty: int, current_narrative: str):
+        """Simulates calling an LLM to generate an enemy ship based on difficulty and story."""
+        print(f"Calling LLM: Describe an enemy ship with difficulty {ship_difficulty} fitting this story: {current_narrative}")
+        return TargetShip(ship_difficulty, "A Kobold Kruise full of treasure!")
+
+class ShipCombatAgent(GameMasterAgent):
+    def resolve_combat(self, overall_story_narrative: str, attacking_ship, target_ship, game_rules: str, roll: int):
+        """Simulates calling an LLM to determine the outcome of ship combat."""
+        print(f"Calling LLM: Resolve ship combat where goblins try {overall_story_narrative}, roll: {roll}")
+        return "The goblins unleash a volley of explosive junk cannons! The enemy ship is now vulnerable."
+
+class BoardingCombatAgent(GameMasterAgent):
+    def describe_boarding(self, pc_story_narrative: str, attacking_ship, target_ship, game_rules: str):
+        """Simulates calling an LLM to describe the boarding combat setup."""
+        print(f"Calling LLM: Describe the goblins boarding {target_ship.narrative}")
+        return "The goblins swing aboard, landing in a pile of confused kobolds!"
+
+    def player_turn(self, dice_roll: int, character_input: str, goblin, target_ship):
+        """Simulates calling an LLM to describe the player's attack during boarding combat."""
+        print(f"Calling LLM: Resolve {goblin.name}'s attack: {character_input} with roll {dice_roll}")
+        return f"{goblin.name} swings wildly and... {('lands a hit!' if dice_roll > 7 else 'misses!')}"
