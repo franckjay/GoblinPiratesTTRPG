@@ -1,5 +1,5 @@
 import random
-from .models import PlayerCharacter, GoblinShip, TargetShip
+from .models import PlayerCharacter, GoblinShip
 from .agents import PlayerCharacterCreation, NarrativeAgent, DiceAgent, ShipCombatAgent, BoardingCombatAgent, BuildTargetShipAgent
 
 NO_RAID_STR = "No target ship spotted."
@@ -24,17 +24,21 @@ def main():
     player_characters = []
     dice_agent = DiceAgent()
     
+    
     for i in range(num_players):
         name = input(f"Enter name for Goblin {i+1}: ")
         story = input(f"Write a short backstory for {name}: ")
         # Use the LLM agent to generate stats
-        character = character_creator.generate_character(story)
+        character_creator = PlayerCharacterCreation(name, story)
+        character = character_creator.generate_character()
         player_characters.append(character)
     
     ship_name = input("Enter name for your goblin ship: ")
     goblin_ship = GoblinShip(ship_name)
     ship_story = input("Argghhhh! What's our ship story?: ")
-    goblin_ship.create_initial_ship_story(ship_story)
+    # TODO: optionally create the ship story via Agent
+    # goblin_ship.create_initial_ship_story(ship_story)
+    goblin_ship.ship_story = ship_story
     
     # Generate the game scenario
     narrative_agent = NarrativeAgent(
@@ -119,6 +123,7 @@ def main():
         
         print("\n--- Raid Phase! ---")
         raid_narrative = ""
+        should_loot = False
         if target_ship:
             print(f"Target ship spotted: {target_ship.narrative} (Difficulty {target_ship.difficulty})")
             

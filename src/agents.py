@@ -131,15 +131,18 @@ class DiceAgent:
         return random.randint(1, die_size)
 
 class PlayerCharacterCreation(GameMasterAgent):
-    def __init__(self, game_rules: str):
+    def __init__(self, name: str, origin_story: str):
         """
         Initialize the PlayerCharacterCreation agent.
         
         Args:
-            game_rules (str): The rules of the game
+            name (str): The character's name
+            origin_story (str): The character's backstory
         """
-        super().__init__(game_rules)
+        super().__init__()
         self.prompt_template = self._load_prompt_template()
+        self.name = name
+        self.origin_story = origin_story
     
     def _load_prompt_template(self) -> str:
         """Load the character creation prompt template."""
@@ -148,21 +151,32 @@ class PlayerCharacterCreation(GameMasterAgent):
                 return f.read()
         except Exception as e:
             print(f"Error loading prompt template: {e}")
-            return "Generate a goblin character based on this origin story: {origin_story}"
-    
-    def generate_character(self, origin_story: str) -> PlayerCharacter:
-        """
-        Generate a character based on the origin story using the LLM.
-        
-        Args:
-            origin_story (str): The character's backstory
+            return """Generate a goblin character with the following details:
+            Name: {name}
+            Origin Story: {origin_story}
             
+            The character should have stats that sum to exactly 3:
+            - strength (0-3)
+            - cunning (0-3)
+            - marksmanship (0-3)
+            
+            Also include a signature_loot item that reflects their personality.
+            
+            Respond in JSON format with ONLY these fields: strength, cunning, marksmanship, signature_loot"""
+    
+    def generate_character(self) -> PlayerCharacter:
+        """
+        Generate a character using the LLM based on the stored name and origin story.
+        
         Returns:
             PlayerCharacter: The generated character
         """
-        # Format the prompt with the provided information
+
+        # TODO: Maybe only use the LLM to generate a funny grudge and a signature loot item.
+        # Format the prompt with the stored information
         prompt = self.prompt_template.format(
-            origin_story=origin_story,
+            name=self.name,
+            origin_story=self.origin_story,
             game_rules=self.game_rules
         )
         
@@ -186,35 +200,80 @@ class PlayerCharacterCreation(GameMasterAgent):
             # Parse the JSON response
             char_data = json.loads(response)
             
-            # Validate the required fields
-            required_fields = ['name', 'strength', 'cunning', 'marksmanship', 'signature_loot']
+            # Validate the required fields (excluding name since it's provided by user)
+            required_fields = ['strength', 'cunning', 'marksmanship', 'signature_loot']
             for field in required_fields:
                 if field not in char_data:
-                    raise ValueError(f"Missing required field: {field}")
+                    print(f"Missing required field: {field}")
             
+            stat_cnt = 0
+            broken_stats = False
             # Validate stat ranges
             for stat in ['strength', 'cunning', 'marksmanship']:
                 if not 1 <= char_data[stat] <= 3:
-                    raise ValueError(f"Stat {stat} must be between 1 and 3")
+                    stat_cnt += char_data[stat]
+                    broken_stats = True
+                    print(f"Warning: Stat {stat} must be between 1 and 3")
+            if broken_stats or stat_cnt != 3:
+                print("Warning: Stats must sum to 3! Using an Un-Balanced Goblin.")
+                return self.generate_unbalanced_goblin()
             
-            # Create and return the PlayerCharacter object
+            # Create and return the PlayerCharacter object using the stored name and origin story
             return PlayerCharacter(
-                name=char_data['name'],
-                origin_story=char_data.get('origin_story', ''),
+                name=self.name,
+                origin_story=self.origin_story,
                 strength=char_data['strength'],
                 cunning=char_data['cunning'],
                 marksmanship=char_data['marksmanship'],
                 signature_loot=char_data['signature_loot']
             )
         except json.JSONDecodeError as e:
-            print(f"Error parsing LLM response as JSON: {e}")
-            raise ValueError("Invalid JSON response from LLM")
+            print(f"Error parsing LLM response as JSON: {e} : {response}")
+            return self.generate_unbalanced_goblin()
         except Exception as e:
-            print(f"Error parsing character data: {e}")
-            raise ValueError("Failed to create character from LLM response")
+            print(f"Error parsing character data: {e} : {response}")
+            return self.generate_unbalanced_goblin()
+
+    def generate_unbalanced_goblin(self) -> PlayerCharacter:
+        """
+        Generate an unbalanced goblin character as a fallback when normal generation fails.
+        Assigns 2 points to one random attribute, 1 to another, and 0 to the last.
+        
+        Returns:
+            PlayerCharacter: An unbalanced goblin character
+        """
+        # List of stats to distribute points to
+        stats = ['strength', 'cunning', 'marksmanship']
+        random.shuffle(stats)  # Randomly shuffle the stats
+        
+        # Create a dictionary to store the stat values
+        stat_values = {
+            stats[0]: 2,  # First stat gets 2 points
+            stats[1]: 1,  # Second stat gets 1 point
+            stats[2]: 0   # Third stat gets 0 points
+        }
+        
+        return PlayerCharacter(
+            name=self.name,
+            origin_story=self.origin_story,
+            strength=stat_values['strength'],
+            cunning=stat_values['cunning'],
+            marksmanship=stat_values['marksmanship'],
+            signature_loot="Rusty Lucky Coin"  # Default signature loot for unbalanced goblins
+        )
 
 class NarrativeAgent(GameMasterAgent):
-    def __init__(self, character_stories: list[str], ship_story: str):
+    def __init__(self, character_stories: list[str], ship_story: str, deep_research: bool = False, max_iterations: int = 3):
+        """
+        Initialize the NarrativeAgent with character stories and ship story.
+        
+        Args:
+            character_stories (list[str]): List of character backstories
+            ship_story (str): The ship's story
+            deep_research (bool): Whether to use iterative refinement for responses
+            max_iterations (int): Maximum number of refinement iterations
+        """
+        super().__init__(deep_research=deep_research, max_iterations=max_iterations)
         self.character_stories = "-----\n------".join(character_stories)
         self.ship_story = ship_story
         self.current_story = ""
@@ -222,6 +281,19 @@ class NarrativeAgent(GameMasterAgent):
         self.end_stage = ""
         self.story_update_counter = 0
         self.max_updates_before_summary = 3
+    
+    def parse_llm_response(self, response: str) -> str:
+        """
+        Simple pass-through implementation of the abstract method.
+        NarrativeAgent uses raw text responses and doesn't need structured parsing.
+        
+        Args:
+            response (str): The LLM's response
+            
+        Returns:
+            str: The unchanged response
+        """
+        return response
 
     def create_initial_narrative(self) -> str:
         """
@@ -250,9 +322,10 @@ class NarrativeAgent(GameMasterAgent):
         
         self.current_story = self.call_llm(initial_prompt)
         self.full_story = self._create_full_story()
+        self.create_end_stage()
         return self.current_story
 
-    def create_end_stage(self) -> str:
+    def create_end_stage(self) -> None:
         """
         Create a secret end stage narrative that will serve as the game's conclusion.
         
@@ -357,6 +430,22 @@ class NarrativeAgent(GameMasterAgent):
             pass
 
 class BuildTargetShipAgent(GameMasterAgent):
+    def __init__(self, deep_research: bool = False, max_iterations: int = 3):
+        super().__init__(deep_research=deep_research, max_iterations=max_iterations)
+    
+    def parse_llm_response(self, response: str) -> str:
+        """
+        Simple pass-through implementation of the abstract method.
+        BuildTargetShipAgent uses raw text responses and doesn't need structured parsing.
+        
+        Args:
+            response (str): The LLM's response
+            
+        Returns:
+            str: The unchanged response
+        """
+        return response
+        
     def generate_target_ship(self, ship_difficulty: int, current_narrative: str) -> TargetShip:
         """
         Generate an enemy ship based on difficulty and current story context.
@@ -392,6 +481,22 @@ class BuildTargetShipAgent(GameMasterAgent):
         return TargetShip(ship_difficulty, narrative)
 
 class ShipCombatAgent(GameMasterAgent):
+    def __init__(self, deep_research: bool = False, max_iterations: int = 3):
+        super().__init__(deep_research=deep_research, max_iterations=max_iterations)
+    
+    def parse_llm_response(self, response: str) -> str:
+        """
+        Simple pass-through implementation of the abstract method.
+        ShipCombatAgent uses raw text responses and doesn't need structured parsing.
+        
+        Args:
+            response (str): The LLM's response
+            
+        Returns:
+            str: The unchanged response
+        """
+        return response
+        
     def resolve_combat(self, attacking_ship: GoblinShip, target_ship: TargetShip, dice_agent: DiceAgent, player: PlayerCharacter, player_action: str) -> tuple[str, bool]:
         """
         Resolve a round of ship-to-ship combat.
@@ -518,11 +623,24 @@ class ShipCombatAgent(GameMasterAgent):
             return "The raid was a wild adventure, but the details are a bit fuzzy after all that grog!"
 
 class BoardingCombatAgent(GameMasterAgent):
-    def __init__(self, character_stories: list[str], ship_story: str):
-        super().__init__()
+    def __init__(self, character_stories: list[str], ship_story: str, deep_research: bool = False, max_iterations: int = 3):
+        super().__init__(deep_research=deep_research, max_iterations=max_iterations)
         self.character_stories = character_stories
         self.ship_story = ship_story
     
+    def parse_llm_response(self, response: str) -> str:
+        """
+        Simple pass-through implementation of the abstract method.
+        BoardingCombatAgent uses raw text responses and doesn't need structured parsing.
+        
+        Args:
+            response (str): The LLM's response
+            
+        Returns:
+            str: The unchanged response
+        """
+        return response
+        
     def describe_boarding(self, pc_story_narrative: str, attacking_ship: GoblinShip, target_ship: TargetShip) -> str:
         """Describe the boarding action setup."""
         prompt = f"""
