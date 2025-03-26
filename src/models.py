@@ -77,7 +77,7 @@ class GoblinShip:
 
 class TargetShip:
     def __init__(self, difficulty, narrative):
-        self.hull = max(5, difficulty * 3)  # Hull scales with difficulty
+        self.hull = max(5, difficulty)  # Hull scales with difficulty
         self.difficulty = difficulty
         self.narrative = narrative
         self.boardable = False

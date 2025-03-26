@@ -7,19 +7,26 @@ Origin Story:
 {origin_story}
 
 Please generate a goblin character with the following attributes:
-1. Name: A fitting goblin name that matches their personality
-2. Stats (0-3 range): Each Goblin can have 3 points to distribute amongst the following
+1. Stats (0-3 range): Each Goblin can have 3 points to distribute amongst the following
    - Strength: Physical power and melee combat ability
    - Cunning: Stealth, trickery, and problem-solving
    - Marksmanship: Ranged combat and precision
-3. Signature Loot: A unique item that fits their background
+2. Signature Loot: A unique item that fits their background
 
 Format your response as a JSON object with the following structure:
 {
-    "strength": number,
-    "cunning": number,
-    "marksmanship": number,
-    "signature_loot": "string"
+    'strength': 'int[0,3]',
+    'cunning': 'int[0,3]',
+    'marksmanship': 'int[0,3]',
+    'signature_loot': 'string'
 }
 
-Ensure the stats reflect the character's background - for example, a sneaky thief should have high cunning but might be weaker in strength. 
+Ensure the stats reflect the character's background - for example, a sneaky thief should have high cunning but might be weaker in strength. An 
+example might be:
+
+{
+    'strength': 0,
+    'cunning': 2,
+    'marksmanship': 1,
+    'signature_loot': 'A trusty dagger that whistles the Jolly Roger when trickery is afoot.'
+}
