@@ -140,20 +140,22 @@ class PlayerCharacterCreation(GameMasterAgent):
             origin_story (str): The character's backstory
         """
         super().__init__()
-        self.prompt_template = self._load_prompt_template()
         self.name = name
         self.origin_story = origin_story
+        self.prompt = self._load_prompt()
+
     
-    def _load_prompt_template(self) -> str:
+    def _load_prompt(self) -> str:
         """Load the character creation prompt template."""
         try:
             with open('generation_prompts/character_creation_prompt.md', 'r') as f:
                 return f.read()
         except Exception as e:
+            # TODO: Is this exception necessary?
             print(f"Error loading prompt template: {e}")
-            return """Generate a goblin character with the following details:
-            Name: {name}
-            Origin Story: {origin_story}
+            return f"""Generate a goblin character with the following details:
+            Name: {self.name}
+            Origin Story: {self.origin_story}
             
             The character should have stats that sum to exactly 3:
             - strength (0-3)
@@ -171,17 +173,8 @@ class PlayerCharacterCreation(GameMasterAgent):
         Returns:
             PlayerCharacter: The generated character
         """
-
-        # TODO: Maybe only use the LLM to generate a funny grudge and a signature loot item.
-        # Format the prompt with the stored information
-        prompt = self.prompt_template.format(
-            name=self.name,
-            origin_story=self.origin_story,
-            game_rules=self.game_rules
-        )
-        
         # Get the LLM response
-        response = self.call_llm(prompt)
+        response = self.call_llm(self.prompt)
         
         # Parse the response into a PlayerCharacter object
         return self.parse_llm_response(response)
@@ -259,7 +252,7 @@ class PlayerCharacterCreation(GameMasterAgent):
             strength=stat_values['strength'],
             cunning=stat_values['cunning'],
             marksmanship=stat_values['marksmanship'],
-            signature_loot="Rusty Lucky Coin"  # Default signature loot for unbalanced goblins
+            signature_loot="Rusty Lucky Coin that smells of old fish. Sometimes it provides an extra edge when trying to stay alive."  # Default signature loot for unbalanced goblins
         )
 
 class NarrativeAgent(GameMasterAgent):
@@ -513,7 +506,7 @@ class ShipCombatAgent(GameMasterAgent):
         """
         # Roll for attack
         attack_roll = dice_agent.roll_2d6() + attacking_ship.cannons
-        defense_roll = dice_agent.roll_2d6() + target_ship.difficulty
+        defense_roll = dice_agent.roll_2d6() + int(target_ship.difficulty//4)
         
         # Generate narrative prompt
         narrative_prompt = f"""
