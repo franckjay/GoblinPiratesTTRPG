@@ -142,18 +142,32 @@ class PlayerCharacterCreation(GameMasterAgent):
         super().__init__()
         self.name = name
         self.origin_story = origin_story
+        self.json_formatting = self._load_json_formatting()
         self.prompt = self._load_prompt()
+        
+
+    
+    def _load_json_formatting(self) -> str:
+        """Load the JSON formatting template."""
+        try:
+            with open('generation_prompts/json_example.md', 'r') as f:
+                return f.read()
+        except Exception as e:
+            print(f"Error loading JSON formatting template: {e}")
+            return """{"strength": 2, "cunning": 1, "marksmanship": 0, "signature_loot": "An left boot that shines only on moonless nights."}"""
 
     
     def _load_prompt(self) -> str:
         """Load the character creation prompt template."""
         try:
             with open('generation_prompts/character_creation_prompt.md', 'r') as f:
-                return f.read()
+                formattable_prompt = f.read().format(game_rules=self.game_rules, name=self.name, origin_story=self.origin_story)
+            return formattable_prompt + self.json_formatting
         except Exception as e:
             # TODO: Is this exception necessary?
             print(f"Error loading prompt template: {e}")
             return f"""Generate a goblin character with the following details:
+            Game Rules: {self.game_rules}
             Name: {self.name}
             Origin Story: {self.origin_story}
             
@@ -164,7 +178,7 @@ class PlayerCharacterCreation(GameMasterAgent):
             
             Also include a signature_loot item that reflects their personality.
             
-            Respond in JSON format with ONLY these fields: strength, cunning, marksmanship, signature_loot"""
+            Respond in JSON format with ONLY these fields: strength, cunning, marksmanship, signature_loot""" + self.json_formatting
     
     def generate_character(self) -> PlayerCharacter:
         """
@@ -476,6 +490,7 @@ class BuildTargetShipAgent(GameMasterAgent):
 class ShipCombatAgent(GameMasterAgent):
     def __init__(self, deep_research: bool = False, max_iterations: int = 3):
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
+        self.running_narrative = ""
     
     def parse_llm_response(self, response: str) -> str:
         """
@@ -490,7 +505,7 @@ class ShipCombatAgent(GameMasterAgent):
         """
         return response
         
-    def resolve_combat(self, attacking_ship: GoblinShip, target_ship: TargetShip, dice_agent: DiceAgent, player: PlayerCharacter, player_action: str) -> tuple[str, bool]:
+    def resolve_combat(self, attacking_ship: GoblinShip, target_ship: TargetShip, dice_agent: DiceAgent, player: PlayerCharacter, player_action: str) -> None:
         """
         Resolve a round of ship-to-ship combat.
         
@@ -504,10 +519,12 @@ class ShipCombatAgent(GameMasterAgent):
         Returns:
             tuple[str, bool]: (combat narrative, whether target is now boardable)
         """
+        target_escaped = False
         # Roll for attack
         attack_roll = dice_agent.roll_2d6() + attacking_ship.cannons
         defense_roll = dice_agent.roll_2d6() + int(target_ship.difficulty//4)
-        
+        if defense_roll >= 12:
+            target_escaped = True
         # Generate narrative prompt
         narrative_prompt = f"""
         Create a humorous and exciting narrative for this ship combat action:
@@ -517,6 +534,7 @@ class ShipCombatAgent(GameMasterAgent):
         Signature Loot: {player.signature_loot}
         Ship: {attacking_ship.name}
         Ship Story: {attacking_ship.ship_story}
+        Target Escaped: {target_escaped}
         
         Player's Action: {player_action}
         Attack Roll: {attack_roll} (including {attacking_ship.cannons} from ship's cannons)
@@ -531,13 +549,19 @@ class ShipCombatAgent(GameMasterAgent):
         3. Describes the ship's role in the action
         4. Explains the outcome based on the rolls
         5. Maintains the goblin pirate theme's humor
+
+        If and only if the target ship has escaped, add a humorous note about the target ship escaping.
         
         Provide only the narrative, no additional commentary. Think carefully about the narrative before responding, 
-        and if a piece of information is not relevant to the action, don't include it.
+        and if a piece of information is not relevant to the action, don't include it. Here is what has happened so far:
+        {self.running_narrative}
         """
         
         # Get narrative from LLM
         narrative = self.call_llm(narrative_prompt)
+        if target_escaped:
+            target_ship.escaped = True
+            return narrative, False
         
         # Calculate damage and determine if ship is boardable
         if attack_roll >= 12:
@@ -553,9 +577,11 @@ class ShipCombatAgent(GameMasterAgent):
         # Check if ship is now boardable
         is_boardable = target_ship.hull <= 5
         if is_boardable:
+            target_ship.boardable = True
             narrative += f"\nThe {target_ship.narrative} is now vulnerable to boarding!"
-        
-        return narrative, is_boardable
+        self.running_narrative += narrative
+        print(narrative)
+        return
 
     def generate_loot_narrative(self, total_loot: int, ship_size: str, character_stories: list[str]) -> str:
         """
@@ -581,7 +607,7 @@ class ShipCombatAgent(GameMasterAgent):
         
         return self.call_llm(loot_prompt)
 
-    def summarize_raid(self, raid_narrative: str) -> str:
+    def summarize_raid(self) -> str:
         """
         Create a concise summary of the raid phase using the LLM.
         
@@ -595,7 +621,7 @@ class ShipCombatAgent(GameMasterAgent):
         Create a concise and humorous summary of this goblin pirate raid:
         
         Full Raid Narrative:
-        {raid_narrative}
+        {self.raid_narrative}
         
         Create a summary that:
         1. Captures the key events and turning points
@@ -620,7 +646,8 @@ class BoardingCombatAgent(GameMasterAgent):
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
         self.character_stories = character_stories
         self.ship_story = ship_story
-    
+        self.running_narrative = ""
+
     def parse_llm_response(self, response: str) -> str:
         """
         Simple pass-through implementation of the abstract method.
@@ -649,7 +676,7 @@ class BoardingCombatAgent(GameMasterAgent):
         """
         return self.call_llm(prompt)
     
-    def resolve_boarding_combat(self, goblin: PlayerCharacter, target_ship: TargetShip, dice_agent: DiceAgent, player_action: str) -> tuple[str, int]:
+    def resolve_boarding_combat(self, goblin: PlayerCharacter, target_ship: TargetShip, dice_agent: DiceAgent, player_action: str) -> None:
         """
         Resolve a goblin's boarding combat action.
         
@@ -696,7 +723,8 @@ class BoardingCombatAgent(GameMasterAgent):
         4. Describes the outcome based on the rolls
         5. Maintains the goblin pirate theme's humor
         
-        Provide only the narrative, no additional commentary.
+        Provide only the narrative, no additional commentary. Here is the running narrative so far, if any:
+        {self.running_narrative}
         """
         
         # Get narrative from LLM
@@ -707,5 +735,40 @@ class BoardingCombatAgent(GameMasterAgent):
             damage = attack_roll - difficulty
         else:
             damage = 0
+        target_ship.hull -= damage
+        print(narrative)
+        return None
+    
+    def summarize_raid(self) -> str:
+        """
+        Create a concise summary of the raid phase using the LLM.
         
-        return narrative, damage
+        Args:
+            raid_narrative (str): The full narrative of the raid phase
+            
+        Returns:
+            str: A concise summary of the raid phase
+        """
+        summary_prompt = f"""
+        Create a concise and humorous summary of this goblin pirate raid:
+        
+        Full Raid Narrative:
+        {self.raid_narrative}
+        
+        Create a summary that:
+        1. Captures the key events and turning points
+        2. Highlights the most memorable character actions
+        3. Includes the final outcome
+        4. Maintains the goblin pirate theme's humor
+        5. Is about 2-3 paragraphs long
+        
+        Focus on the most exciting and funny moments, and make it feel like a pirate's tale being retold in a tavern!
+        
+        Provide only the summary, no additional commentary.
+        """
+        
+        try:
+            return self.call_llm(summary_prompt)
+        except Exception as e:
+            print(f"Error summarizing raid: {e}")
+            return "The raid was a wild adventure, but the details are a bit fuzzy after all that grog!"

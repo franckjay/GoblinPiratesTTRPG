@@ -122,7 +122,6 @@ def main():
                 print("Invalid action!")
         
         print("\n--- Raid Phase! ---")
-        raid_narrative = ""
         should_loot = False
         if target_ship:
             print(f"Target ship spotted: {target_ship.narrative} (Difficulty {target_ship.difficulty})")
@@ -147,7 +146,7 @@ def main():
                     player_action = input(f"What would you like to do with the ship, {player.name}? ")
                     
                     # Resolve combat
-                    narrative, is_boardable = ship_combat_agent.resolve_combat(
+                    ship_combat_agent.resolve_combat(
                         goblin_ship,
                         target_ship,
                         dice_agent,
@@ -156,28 +155,23 @@ def main():
                     )
                     print("\n" + narrative)
                     print(f"\nTarget ship hull: {target_ship.hull}")
-                    
                     # Check if ship is now boardable
-                    if is_boardable:
-                        target_ship.boardable = True
+                    if target_ship.boardable:
                         break
-                    
                     # Check if ship escaped (12+ on defense roll)
-                    if target_ship.hull <= 0:
-                        target_ship.escaped = True
+                    if target_ship.escaped is True:
+                        should_loot = False
                         break
             
             # Boarding combat phase
             if target_ship.boardable and not target_ship.escaped:
                 print("\n--- Boarding Combat! ---")
                 # Describe the boarding action
-                boarding_narrative = boarding_agent.describe_boarding(
+                boarding_agent.describe_boarding(
                     [pc.origin_story for pc in player_characters],
                     goblin_ship,
                     target_ship
                 )
-                print("\n" + boarding_narrative)
-                raid_narrative += boarding_narrative
 
                 # Each player takes a turn in boarding combat
                 for player in current_players:
@@ -189,15 +183,13 @@ def main():
                     player_action = input(f"What would you like to do, {player.name}? ")
                     
                     # Resolve boarding combat
-                    narrative, damage = boarding_agent.resolve_boarding_combat(
+                    boarding_agent.resolve_boarding_combat(
                         player,
                         target_ship,
                         dice_agent,
                         player_action
                     )
-                    print("\n" + narrative)
-                    if damage > 0:
-                        print(f"Dealt {damage} damage to the enemy crew!")
+                    print(f"Target crew is down to  {target_ship.hull}!")
             
             # Check combat results
             if target_ship.escaped:
@@ -212,12 +204,16 @@ def main():
 
         else:
             raid_outcome = NO_RAID_STR
+        # End of the Rqaid    
         print(raid_outcome)
-        raid_narrative += raid_outcome
-        if raid_outcome != NO_RAID_STR:
-            raid_narrative = ship_combat_agent.summarize_raid(raid_narrative) 
-            
+        if ship_combat_agent.running_narrative:
+            raid_narrative = ship_combat_agent.summarize_raid() 
             # Append the raid narrative to the NarrativeAgent. This also summarizes the story.
+            narrative_agent.append_to_story(raid_narrative)
+            # If there was boarding, summarize it and append it to the story.
+        if boarding_agent.running_narrative:
+            boarding_agent.running_narrative+= "\n" + raid_outcome
+            raid_narrative = boarding_agent.summarize_raid()
             narrative_agent.append_to_story(raid_narrative)
 
         print("\n--- Loot Phase! ---")
