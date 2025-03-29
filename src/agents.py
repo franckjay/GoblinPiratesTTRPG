@@ -189,7 +189,9 @@ class PlayerCharacterCreation(GameMasterAgent):
         """
         # Get the LLM response
         response = self.call_llm(self.prompt)
-        
+        if "json" in response:
+            response = response.split("json")[-1]
+            response = response.replace("```", "")
         # Parse the response into a PlayerCharacter object
         return self.parse_llm_response(response)
     
@@ -621,7 +623,7 @@ class ShipCombatAgent(GameMasterAgent):
         Create a concise and humorous summary of this goblin pirate raid:
         
         Full Raid Narrative:
-        {self.raid_narrative}
+        {self.running_narrative}
         
         Create a summary that:
         1. Captures the key events and turning points
@@ -737,6 +739,7 @@ class BoardingCombatAgent(GameMasterAgent):
             damage = 0
         target_ship.hull -= damage
         print(narrative)
+        self.running_narrative += narrative
         return None
     
     def summarize_raid(self) -> str:
@@ -753,7 +756,7 @@ class BoardingCombatAgent(GameMasterAgent):
         Create a concise and humorous summary of this goblin pirate raid:
         
         Full Raid Narrative:
-        {self.raid_narrative}
+        {self.running_narrative}
         
         Create a summary that:
         1. Captures the key events and turning points

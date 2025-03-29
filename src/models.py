@@ -84,4 +84,4 @@ class TargetShip:
         self.escaped = False
 
     def get_summary(self):
-        return f"Target Ship\nDifficulty: {self.difficulty}\nHull: {self.hull}\nNarrative: {self.narrative}\nBoardable: {self.boardable}\nEscaped: {self.escaped}" 
+        return f"Target Ship\nDifficulty: {self.difficulty}\nHull: {self.hull}\nBoardable: {self.boardable}\nEscaped: {self.escaped}" 
