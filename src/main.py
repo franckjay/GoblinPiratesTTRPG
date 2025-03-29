@@ -153,7 +153,6 @@ def main():
                         player,
                         player_action
                     )
-                    print("\n" + narrative)
                     print(f"\nTarget ship hull: {target_ship.hull}")
                     # Check if ship is now boardable
                     if target_ship.boardable:
