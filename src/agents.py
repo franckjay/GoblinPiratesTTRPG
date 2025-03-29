@@ -702,6 +702,17 @@ class BoardingCombatAgent(GameMasterAgent):
         # Roll for attack
         attack_roll = dice_agent.roll_2d6() + best_stat[1]
         difficulty = target_ship.difficulty
+        defender_roll = dice_agent.roll_2d6() + (difficulty//4)
+
+                # Calculate damage
+        if attack_roll >= difficulty:
+            damage = attack_roll - difficulty
+        elif defender_roll >= 12:
+            goblin.living = False
+        else:
+            damage = 0
+        target_ship.hull -= damage
+        print(narrative)
         
         # Generate narrative prompt
         narrative_prompt = f"""
@@ -714,7 +725,10 @@ class BoardingCombatAgent(GameMasterAgent):
         
         Player's Action: {player_action}
         Attack Roll: {attack_roll} (including {best_stat[1]} from {best_stat[0]})
+        Defender Roll: {defender_roll} (including {difficulty//4} from target's difficulty)
         Difficulty: {difficulty}
+        Damage to Target Ship: {damage}
+        Did the attacking {goblin.name} survive? {goblin.living}
         
         Target Ship: {target_ship.narrative}
         
@@ -732,13 +746,6 @@ class BoardingCombatAgent(GameMasterAgent):
         # Get narrative from LLM
         narrative = self.call_llm(narrative_prompt)
         
-        # Calculate damage
-        if attack_roll >= difficulty:
-            damage = attack_roll - difficulty
-        else:
-            damage = 0
-        target_ship.hull -= damage
-        print(narrative)
         self.running_narrative += narrative
         return None
     

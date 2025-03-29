@@ -1,11 +1,12 @@
 class PlayerCharacter:
-    def __init__(self, name, origin_story, strength, cunning, marksmanship, signature_loot):
+    def __init__(self, name: str, origin_story: str, strength: int, cunning: int, marksmanship: int, signature_loot: str):
         self.name = name
         self.origin_story = origin_story
         self.strength = strength
         self.cunning = cunning
         self.marksmanship = marksmanship
         self.signature_loot = signature_loot
+        self.living = True
 
     def get_summary(self):
         return f"Name: {self.name}\nOrigin Story: {self.origin_story}\nStrength: {self.strength}\nCunning: {self.cunning}\nMarksmanship: {self.marksmanship}\nSignature Loot: {self.signature_loot}"

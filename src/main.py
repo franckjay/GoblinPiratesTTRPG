@@ -19,18 +19,30 @@ def print_upgrade_options():
     print("3. Cannons")
     print("4. Trickery")
 
+def create_player_character(player_number: int = None) -> PlayerCharacter:
+    """
+    Create a new player character.
+    
+    Args:
+        player_number (int, optional): The player number for the prompt. If None, no number will be shown.
+        
+    Returns:
+        PlayerCharacter: The newly created character
+    """
+    name_prompt = f"Enter name for Goblin {player_number + 1}: " if player_number is not None else "Enter name for your new Goblin: "
+    name = input(name_prompt)
+    story = input(f"Write a short backstory for {name}: ")
+    # Use the LLM agent to generate stats
+    character_creator = PlayerCharacterCreation(name, story)
+    return character_creator.generate_character()
+
 def main():
     num_players = int(input("Enter number of players: "))
     player_characters = []
     dice_agent = DiceAgent()
     
-    
     for i in range(num_players):
-        name = input(f"Enter name for Goblin {i+1}: ")
-        story = input(f"Write a short backstory for {name}: ")
-        # Use the LLM agent to generate stats
-        character_creator = PlayerCharacterCreation(name, story)
-        character = character_creator.generate_character()
+        character = create_player_character(i)
         player_characters.append(character)
     
     ship_name = input("Enter name for your goblin ship: ")
@@ -173,7 +185,8 @@ def main():
                 )
 
                 # Each player takes a turn in boarding combat
-                for player in current_players:
+                for player_idx in range(len(current_players)):
+                    player = current_players[player_idx]
                     print(f"\n{player.name}'s turn in boarding combat!")
                     print(f"Your stats:\n{player.get_summary()}")
                     print(f"Target ship status:\n{target_ship.get_summary()}")
@@ -188,6 +201,13 @@ def main():
                         dice_agent,
                         player_action
                     )
+
+                    if not player.living:
+                        print(f"\n{player.name} has fallen in battle! Time for a new goblin to join the crew!")
+                        player = create_player_character()
+                        current_players[player_idx] = player
+                        player_characters[player_idx] = player  # Update the main list as well
+                        print(f"Welcome {player.name} to the crew!")
                     print(f"Target crew is down to  {target_ship.hull}!")
             
             # Check combat results
