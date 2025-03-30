@@ -1,0 +1,3 @@
+"""
+Goblin Pirates TTRPG package.
+""" 

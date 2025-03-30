@@ -3,7 +3,7 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
-from .models import PlayerCharacter, TargetShip
+from .models import PlayerCharacter, TargetShip, GoblinShip
 import random
 
 class GameMasterAgent(ABC):
@@ -19,7 +19,7 @@ class GameMasterAgent(ABC):
             deep_research (bool): Whether to use iterative refinement for responses
             max_iterations (int): Maximum number of refinement iterations (if deep_research is True)
         """
-        with open('src/rules/EditableRules.md', 'r') as f:
+        with open('src/rules/EditableRules.md', 'r', encoding='utf-8') as f:
             self.game_rules = f.read()
 
         load_dotenv()  # Load environment variables from .env file
@@ -150,7 +150,7 @@ class PlayerCharacterCreation(GameMasterAgent):
     def _load_json_formatting(self) -> str:
         """Load the JSON formatting template."""
         try:
-            with open('generation_prompts/json_example.md', 'r') as f:
+            with open('generation_prompts/json_example.md', 'r', encoding='utf-8') as f:
                 return f.read()
         except Exception as e:
             print(f"Error loading JSON formatting template: {e}")
@@ -160,7 +160,7 @@ class PlayerCharacterCreation(GameMasterAgent):
     def _load_prompt(self) -> str:
         """Load the character creation prompt template."""
         try:
-            with open('generation_prompts/character_creation_prompt.md', 'r') as f:
+            with open('generation_prompts/character_creation_prompt.md', 'r', encoding='utf-8') as f:
                 formattable_prompt = f.read().format(game_rules=self.game_rules, name=self.name, origin_story=self.origin_story)
             return formattable_prompt + self.json_formatting
         except Exception as e:
@@ -193,6 +193,10 @@ class PlayerCharacterCreation(GameMasterAgent):
             response = response.split("json")[-1]
             response = response.replace("```", "")
         # Parse the response into a PlayerCharacter object
+        if "{" in response and not response.startswith("{"):
+            response = "{" + response.split("{")[1]
+        if "}" in response and not response.endswith("}"):
+            response = response.split("}")[0] + "}"
         return self.parse_llm_response(response)
     
     def parse_llm_response(self, response: str) -> PlayerCharacter:
@@ -535,7 +539,7 @@ class ShipCombatAgent(GameMasterAgent):
         Character Story: {player.origin_story}
         Signature Loot: {player.signature_loot}
         Ship: {attacking_ship.name}
-        Ship Story: {attacking_ship.ship_story}
+        Ship Story: {attacking_ship.get_summary()}
         Target Escaped: {target_escaped}
         
         Player's Action: {player_action}
@@ -712,7 +716,7 @@ class BoardingCombatAgent(GameMasterAgent):
         else:
             damage = 0
         target_ship.hull -= damage
-        print(narrative)
+
         
         # Generate narrative prompt
         narrative_prompt = f"""
@@ -745,7 +749,7 @@ class BoardingCombatAgent(GameMasterAgent):
         
         # Get narrative from LLM
         narrative = self.call_llm(narrative_prompt)
-        
+        print(narrative)
         self.running_narrative += narrative
         return None
     
