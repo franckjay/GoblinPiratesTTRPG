@@ -74,13 +74,13 @@ def main():
         # Randomize player order for this phase
         current_players = player_characters.copy()
         random.shuffle(current_players)
-        
+        target_ship = None
         # Each player takes their turn
         for player in current_players:
             player_action_promt(player)
             
             action = input(f"What would you like to do, {player.name}? (1-4): ")
-            target_ship = None
+            
             if action == "1":
                 roll = dice_agent.roll_2d6()
                 print(f"You rolled a {roll}!")
@@ -225,7 +225,7 @@ def main():
             raid_outcome = NO_RAID_STR
         # End of the Rqaid    
         print(raid_outcome)
-        if ship_combat_agent.running_narrative:
+        if target_ship and ship_combat_agent.running_narrative:
             raid_narrative = ship_combat_agent.summarize_raid() 
             # Append the raid narrative to the NarrativeAgent. This also summarizes the story.
             narrative_agent.append_to_story(raid_narrative)

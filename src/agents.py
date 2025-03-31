@@ -3,7 +3,9 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
-from .models import PlayerCharacter, TargetShip
+from .models import PlayerCharacter, TargetShip, GoblinShip
+from .generation_prompts import character_creation_prompt, json_example
+from .rules import editable_rules
 import random
 
 class GameMasterAgent(ABC):
@@ -19,8 +21,7 @@ class GameMasterAgent(ABC):
             deep_research (bool): Whether to use iterative refinement for responses
             max_iterations (int): Maximum number of refinement iterations (if deep_research is True)
         """
-        with open('src/rules/EditableRules.md', 'r') as f:
-            self.game_rules = f.read()
+        self.game_rules = editable_rules
 
         load_dotenv()  # Load environment variables from .env file
         api_key = os.getenv('OPENAI_API_KEY')
@@ -142,44 +143,22 @@ class PlayerCharacterCreation(GameMasterAgent):
         super().__init__()
         self.name = name
         self.origin_story = origin_story
-        self.json_formatting = self._load_json_formatting()
+        self.json_formatting = json_example
         self.prompt = self._load_prompt()
         
-
-    
-    def _load_json_formatting(self) -> str:
-        """Load the JSON formatting template."""
-        try:
-            with open('generation_prompts/json_example.md', 'r') as f:
-                return f.read()
-        except Exception as e:
-            print(f"Error loading JSON formatting template: {e}")
-            return """{"strength": 2, "cunning": 1, "marksmanship": 0, "signature_loot": "An left boot that shines only on moonless nights."}"""
-
-    
     def _load_prompt(self) -> str:
         """Load the character creation prompt template."""
         try:
-            with open('generation_prompts/character_creation_prompt.md', 'r') as f:
-                formattable_prompt = f.read().format(game_rules=self.game_rules, name=self.name, origin_story=self.origin_story)
-            return formattable_prompt + self.json_formatting
-        except Exception as e:
-            # TODO: Is this exception necessary?
-            print(f"Error loading prompt template: {e}")
-            return f"""Generate a goblin character with the following details:
-            Game Rules: {self.game_rules}
-            Name: {self.name}
-            Origin Story: {self.origin_story}
-            
-            The character should have stats that sum to exactly 3:
-            - strength (0-3)
-            - cunning (0-3)
-            - marksmanship (0-3)
-            
-            Also include a signature_loot item that reflects their personality.
-            
-            Respond in JSON format with ONLY these fields: strength, cunning, marksmanship, signature_loot""" + self.json_formatting
-    
+            formatted_prompt = character_creation_prompt.format(
+                game_rules=self.game_rules,
+                name=self.name,
+                origin_story=self.origin_story
+            )
+            return formatted_prompt + self.json_formatting
+        except AttributeError:
+            # If the prompt is a string, use it directly
+            return f"{character_creation_prompt}\n\nGame Rules: {self.game_rules}\nName: {self.name}\nOrigin Story: {self.origin_story}\n{self.json_formatting}"
+
     def generate_character(self) -> PlayerCharacter:
         """
         Generate a character using the LLM based on the stored name and origin story.
@@ -193,6 +172,10 @@ class PlayerCharacterCreation(GameMasterAgent):
             response = response.split("json")[-1]
             response = response.replace("```", "")
         # Parse the response into a PlayerCharacter object
+        if "{" in response and not response.startswith("{"):
+            response = "{" + response.split("{")[1]
+        if "}" in response and not response.endswith("}"):
+            response = response.split("}")[0] + "}"
         return self.parse_llm_response(response)
     
     def parse_llm_response(self, response: str) -> PlayerCharacter:
@@ -535,7 +518,7 @@ class ShipCombatAgent(GameMasterAgent):
         Character Story: {player.origin_story}
         Signature Loot: {player.signature_loot}
         Ship: {attacking_ship.name}
-        Ship Story: {attacking_ship.ship_story}
+        Ship Story: {attacking_ship.get_summary()}
         Target Escaped: {target_escaped}
         
         Player's Action: {player_action}
@@ -704,15 +687,16 @@ class BoardingCombatAgent(GameMasterAgent):
         difficulty = target_ship.difficulty
         defender_roll = dice_agent.roll_2d6() + (difficulty//4)
 
-                # Calculate damage
+        # Calculate damage and check for death
         if attack_roll >= difficulty:
             damage = attack_roll - difficulty
         elif defender_roll >= 12:
-            goblin.living = False
+            damage = 0
+            goblin.living = False  # Set living to False when defender rolls 12+
         else:
             damage = 0
+            
         target_ship.hull -= damage
-        print(narrative)
         
         # Generate narrative prompt
         narrative_prompt = f"""
@@ -745,7 +729,7 @@ class BoardingCombatAgent(GameMasterAgent):
         
         # Get narrative from LLM
         narrative = self.call_llm(narrative_prompt)
-        
+        print(narrative)
         self.running_narrative += narrative
         return None
     
