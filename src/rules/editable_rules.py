@@ -1,5 +1,6 @@
 # PIRATE GOBLINS! A Game of Cosmic Plunder and High-Seas Hijinks
-Welcome Aboard, Ya Scallywags!
+
+game_rules = """Welcome Aboard, Ya Scallywags!
 You are all Pirate Goblins, congratulations! You are also hurtling through the sea aboard your beloved (and questionably held together) pirate ship. Your goal? To amass as much treasure, loot, and infamy as possible while surviving the dangers of the ocean!
 ## What You Need:
 ● Index cards or paper for character and ship notes
@@ -69,4 +70,4 @@ Then, the cycle repeats!
 # Finale: Epic Ending
 After less than 8 cycles, the game concludes with one final Boss Encounter—a dreaded Navy fleet, a rival pirate lord, or a monstrous sea leviathan! The goblins must either fight, flee, or trick their way to ultimate victory.
 Survive, and your exploits will become legend across the seas!
-Long Live the Pirate Goblins!
+Long Live the Pirate Goblins!"""
