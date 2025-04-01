@@ -32,9 +32,39 @@ def create_player_character(player_number: int = None) -> PlayerCharacter:
     name_prompt = f"Enter name for Goblin {player_number + 1}: " if player_number is not None else "Enter name for your new Goblin: "
     name = input(name_prompt)
     story = input(f"Write a short backstory for {name}: ")
-    # Use the LLM agent to generate stats
+    
+    # Generate signature loot using the LLM
     character_creator = PlayerCharacterCreation(name, story)
-    return character_creator.generate_character()
+    signature_loot = character_creator.generate_signature_loot()
+    print(f"\nYour signature loot: {signature_loot}")
+    
+    # Let the user allocate stats
+    print("\nYou have 3 points to allocate between Strength, Cunning, and Marksmanship.")
+    print("Each stat can be between 0 and 3, and the total must be 3.")
+    attribute_bank = 3
+    strength = cunning = marksmanship = 0
+    while attribute_bank > 0:
+        print(f"You have {attribute_bank} points left to allocate.")
+        choice = input("Enter the stat you want to allocate to: (1) Strength, (2) Cunning, (3) Marksmanship: ")
+        if choice == "1":
+            strength += 1
+        elif choice == "2":
+            cunning += 1
+        elif choice == "3":
+            marksmanship += 1
+        else:
+            print("Invalid choice! Please try again.")
+            attribute_bank += 1
+        attribute_bank -= 1
+
+    return PlayerCharacter(
+        name=name,
+        origin_story=story,
+        strength=strength,
+        cunning=cunning,
+        marksmanship=marksmanship,
+        signature_loot=signature_loot
+    )
 
 def main():
     num_players = int(input("Enter number of players: "))
@@ -175,7 +205,7 @@ def main():
                         break
             
             # Boarding combat phase
-            if target_ship.boardable and not target_ship.escaped:
+            while target_ship.boardable and not target_ship.escaped and target_ship.hull > 0:
                 print("\n--- Boarding Combat! ---")
                 # Describe the boarding action
                 boarding_agent.describe_boarding(

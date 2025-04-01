@@ -33,50 +33,49 @@ class TestPlayerCharacterCreation(unittest.TestCase):
     
     @patch('src.agents.GameMasterAgent.call_llm')
     @patch('builtins.open', create=True)
-    def test_generate_character(self, mock_open, mock_call_llm):
+    def test_generate_signature_loot(self, mock_open, mock_call_llm):
         # Mock file operations
         mock_open.return_value.__enter__.return_value.read.return_value = "Mock content"
         
-        # Mock successful character generation
-        mock_response = {
-            "strength": 2,
-            "cunning": 1,
-            "marksmanship": 0,
-            "signature_loot": "A rusty cutlass that whispers pirate shanties"
-        }
-        mock_call_llm.return_value = json.dumps(mock_response)
+        # Mock loot generation
+        mock_call_llm.return_value = "A rusty cutlass that whispers pirate shanties"
         
         # Suppress print output
         with patch('sys.stdout', new=io.StringIO()):
-            character = self.creator.generate_character()
+            loot = self.creator.generate_signature_loot()
         
-        self.assertEqual(character.name, self.name)
-        self.assertEqual(character.origin_story, self.origin_story)
-        self.assertEqual(character.strength, 2)
-        self.assertEqual(character.cunning, 1)
-        self.assertEqual(character.marksmanship, 0)
-        self.assertEqual(character.signature_loot, "A rusty cutlass that whispers pirate shanties")
-        self.assertTrue(character.living)
+        self.assertEqual(loot, "A rusty cutlass that whispers pirate shanties")
 
-    @patch('src.agents.GameMasterAgent.call_llm')
-    @patch('builtins.open', create=True)
-    def test_generate_unbalanced_goblin(self, mock_open, mock_call_llm):
-        # Mock file operations
-        mock_open.return_value.__enter__.return_value.read.return_value = "Mock content"
-        
-        # Mock failed character generation to trigger unbalanced goblin
-        mock_call_llm.return_value = "Invalid JSON"
-        
-        # Suppress print output
-        with patch('sys.stdout', new=io.StringIO()):
-            character = self.creator.generate_character()
-        
-        # Check that stats sum to 3 and one stat is 2, one is 1, and one is 0
-        stats = [character.strength, character.cunning, character.marksmanship]
-        self.assertEqual(sum(stats), 3)
-        self.assertEqual(max(stats), 2)
-        self.assertEqual(min(stats), 0)
-        self.assertTrue(1 in stats)
+class TestPlayerCharacter(unittest.TestCase):
+    def setUp(self):
+        self.character = PlayerCharacter(
+            name="Grimtooth",
+            origin_story="A goblin who learned to fight by wrestling with his pet crocodile",
+            strength=2,
+            cunning=1,
+            marksmanship=0,
+            signature_loot="A rusty cutlass that whispers pirate shanties"
+        )
+    
+    def test_character_creation(self):
+        self.assertEqual(self.character.name, "Grimtooth")
+        self.assertEqual(self.character.origin_story, "A goblin who learned to fight by wrestling with his pet crocodile")
+        self.assertEqual(self.character.strength, 2)
+        self.assertEqual(self.character.cunning, 1)
+        self.assertEqual(self.character.marksmanship, 0)
+        self.assertEqual(self.character.signature_loot, "A rusty cutlass that whispers pirate shanties")
+        self.assertTrue(self.character.living)
+    
+    def test_get_summary(self):
+        expected_summary = (
+            "Name: Grimtooth\n"
+            "Origin Story: A goblin who learned to fight by wrestling with his pet crocodile\n"
+            "Strength: 2\n"
+            "Cunning: 1\n"
+            "Marksmanship: 0\n"
+            "Signature Loot: A rusty cutlass that whispers pirate shanties"
+        )
+        self.assertEqual(self.character.get_summary(), expected_summary)
 
 class TestShipCombat(unittest.TestCase):
     def setUp(self):

@@ -4,7 +4,7 @@ import json
 from openai import OpenAI
 from dotenv import load_dotenv
 from .models import PlayerCharacter, TargetShip, GoblinShip
-from .generation_prompts import character_creation_prompt, json_example
+from .generation_prompts.loot_prompt import loot_prompt
 from .rules import editable_rules
 import random
 
@@ -143,116 +143,43 @@ class PlayerCharacterCreation(GameMasterAgent):
         super().__init__()
         self.name = name
         self.origin_story = origin_story
-        self.json_formatting = json_example
-        self.prompt = self._load_prompt()
         
-    def _load_prompt(self) -> str:
-        """Load the character creation prompt template."""
-        try:
-            formatted_prompt = character_creation_prompt.format(
-                game_rules=self.game_rules,
-                name=self.name,
-                origin_story=self.origin_story
-            )
-            return formatted_prompt + self.json_formatting
-        except AttributeError:
-            # If the prompt is a string, use it directly
-            return f"{character_creation_prompt}\n\nGame Rules: {self.game_rules}\nName: {self.name}\nOrigin Story: {self.origin_story}\n{self.json_formatting}"
-
-    def generate_character(self) -> PlayerCharacter:
+    def generate_signature_loot(self) -> str:
         """
-        Generate a character using the LLM based on the stored name and origin story.
-        
+        Generate a signature piece of loot using the LLM based on the character's story.
+            
         Returns:
-            PlayerCharacter: The generated character
+            str: The generated signature loot
         """
-        # Get the LLM response
-        response = self.call_llm(self.prompt)
-        if "json" in response:
-            response = response.split("json")[-1]
-            response = response.replace("```", "")
-        # Parse the response into a PlayerCharacter object
-        if "{" in response and not response.startswith("{"):
-            response = "{" + response.split("{")[1]
-        if "}" in response and not response.endswith("}"):
-            response = response.split("}")[0] + "}"
-        return self.parse_llm_response(response)
+        loot_prompt = f"""
+        Create a humorous and thematic signature piece of loot for this goblin pirate:
+        
+        Name: {self.name}
+        Origin Story: {self.origin_story}
+        
+        Create a unique piece of loot that:
+        1. Fits the character's backstory and personality
+        2. Has a humorous or interesting effect
+        3. Is thematic to the goblin pirate setting
+        4. Is described in 1-2 sentences
+        
+        Provide only the loot description, no additional commentary.
+        """
+        
+        return self.call_llm(loot_prompt)
     
-    def parse_llm_response(self, response: str) -> PlayerCharacter:
+    def parse_llm_response(self, response: str) -> str:
         """
-        Parse the LLM response into a PlayerCharacter object.
+        Simple pass-through implementation of the abstract method.
+        PlayerCharacterCreation uses raw text responses for loot generation.
         
         Args:
-            response (str): The JSON response from the LLM
+            response (str): The LLM's response
             
         Returns:
-            PlayerCharacter: The parsed character object
+            str: The unchanged response
         """
-        try:
-            # Parse the JSON response
-            char_data = json.loads(response)
-            
-            # Validate the required fields (excluding name since it's provided by user)
-            required_fields = ['strength', 'cunning', 'marksmanship', 'signature_loot']
-            for field in required_fields:
-                if field not in char_data:
-                    print(f"Missing required field: {field}")
-            
-            stat_cnt = 0
-            broken_stats = False
-            # Validate stat ranges
-            for stat in ['strength', 'cunning', 'marksmanship']:
-                if not 1 <= char_data[stat] <= 3:
-                    stat_cnt += char_data[stat]
-                    broken_stats = True
-                    print(f"Warning: Stat {stat} must be between 1 and 3")
-            if broken_stats or stat_cnt != 3:
-                print("Warning: Stats must sum to 3! Using an Un-Balanced Goblin.")
-                return self.generate_unbalanced_goblin()
-            
-            # Create and return the PlayerCharacter object using the stored name and origin story
-            return PlayerCharacter(
-                name=self.name,
-                origin_story=self.origin_story,
-                strength=char_data['strength'],
-                cunning=char_data['cunning'],
-                marksmanship=char_data['marksmanship'],
-                signature_loot=char_data['signature_loot']
-            )
-        except json.JSONDecodeError as e:
-            print(f"Error parsing LLM response as JSON: {e} : {response}")
-            return self.generate_unbalanced_goblin()
-        except Exception as e:
-            print(f"Error parsing character data: {e} : {response}")
-            return self.generate_unbalanced_goblin()
-
-    def generate_unbalanced_goblin(self) -> PlayerCharacter:
-        """
-        Generate an unbalanced goblin character as a fallback when normal generation fails.
-        Assigns 2 points to one random attribute, 1 to another, and 0 to the last.
-        
-        Returns:
-            PlayerCharacter: An unbalanced goblin character
-        """
-        # List of stats to distribute points to
-        stats = ['strength', 'cunning', 'marksmanship']
-        random.shuffle(stats)  # Randomly shuffle the stats
-        
-        # Create a dictionary to store the stat values
-        stat_values = {
-            stats[0]: 2,  # First stat gets 2 points
-            stats[1]: 1,  # Second stat gets 1 point
-            stats[2]: 0   # Third stat gets 0 points
-        }
-        
-        return PlayerCharacter(
-            name=self.name,
-            origin_story=self.origin_story,
-            strength=stat_values['strength'],
-            cunning=stat_values['cunning'],
-            marksmanship=stat_values['marksmanship'],
-            signature_loot="Rusty Lucky Coin that smells of old fish. Sometimes it provides an extra edge when trying to stay alive."  # Default signature loot for unbalanced goblins
-        )
+        return response
 
 class NarrativeAgent(GameMasterAgent):
     def __init__(self, character_stories: list[str], ship_story: str, deep_research: bool = False, max_iterations: int = 3):
@@ -688,11 +615,11 @@ class BoardingCombatAgent(GameMasterAgent):
         defender_roll = dice_agent.roll_2d6() + (difficulty//4)
 
         # Calculate damage and check for death
-        if attack_roll >= difficulty:
-            damage = attack_roll - difficulty
-        elif defender_roll >= 12:
+        if defender_roll >= 12:
             damage = 0
             goblin.living = False  # Set living to False when defender rolls 12+
+        elif attack_roll >= difficulty:
+            damage = attack_roll - difficulty
         else:
             damage = 0
             

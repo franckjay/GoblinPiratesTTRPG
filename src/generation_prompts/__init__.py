@@ -1,0 +1,1 @@
+"""Generation prompts for the Goblin Pirates TTRPG.""" 
