@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 import os
-import json
+
 from openai import OpenAI
 from dotenv import load_dotenv
 from .models import PlayerCharacter, TargetShip, GoblinShip
 from .generation_prompts.loot_prompt import loot_prompt
-from .rules import editable_rules
+from .rules.editable_rules import game_rules
 import random
 
 class GameMasterAgent(ABC):
@@ -21,7 +21,7 @@ class GameMasterAgent(ABC):
             deep_research (bool): Whether to use iterative refinement for responses
             max_iterations (int): Maximum number of refinement iterations (if deep_research is True)
         """
-        self.game_rules = editable_rules
+        self.game_rules = game_rules
 
         load_dotenv()  # Load environment variables from .env file
         api_key = os.getenv('OPENAI_API_KEY')

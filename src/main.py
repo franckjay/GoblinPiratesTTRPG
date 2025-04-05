@@ -9,8 +9,9 @@ def player_action_promt(pc: PlayerCharacter):
             print("Available actions:")
             print("1. Spy a Target (Roll 2d6)")
             print("2. Repair the Ship (Cost: 10 Loot)")
-            print("3. Train the Crew (Improve Morale)")
+            print("3. Train the Crew (Cost: 5 Loot to Improve Morale)")
             print("4. Upgrade the Ship (Cost: 20 Loot)")
+            print("5. Do nothing! (Free)")
             
 def print_upgrade_options():
     print("\nAvailable upgrades:")
@@ -109,7 +110,7 @@ def main():
         for player in current_players:
             player_action_promt(player)
             
-            action = input(f"What would you like to do, {player.name}? (1-4): ")
+            action = input(f"What would you like to do, {player.name} with your total loot at {goblin_ship.loot}? (1-5): ")
             
             if action == "1":
                 roll = dice_agent.roll_2d6()
@@ -161,7 +162,7 @@ def main():
                     print("Invalid upgrade choice!")
             
             else:
-                print("Invalid action!")
+                print("No action!")
         
         print("\n--- Raid Phase! ---")
         should_loot = False
