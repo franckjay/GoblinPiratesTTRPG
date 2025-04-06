@@ -1,11 +1,11 @@
 from abc import ABC, abstractmethod
 import os
-import json
+
 from openai import OpenAI
 from dotenv import load_dotenv
 from .models import PlayerCharacter, TargetShip, GoblinShip
 from .generation_prompts.loot_prompt import loot_prompt
-from .rules import editable_rules
+from .rules.editable_rules import game_rules
 import random
 
 class GameMasterAgent(ABC):
@@ -21,7 +21,7 @@ class GameMasterAgent(ABC):
             deep_research (bool): Whether to use iterative refinement for responses
             max_iterations (int): Maximum number of refinement iterations (if deep_research is True)
         """
-        self.game_rules = editable_rules
+        self.game_rules = game_rules
 
         load_dotenv()  # Load environment variables from .env file
         api_key = os.getenv('OPENAI_API_KEY')
@@ -433,9 +433,10 @@ class ShipCombatAgent(GameMasterAgent):
         """
         target_escaped = False
         # Roll for attack
+        difficulty_scaler = int(target_ship_difficulty//4)
         attack_roll = dice_agent.roll_2d6() + attacking_ship.cannons
-        defense_roll = dice_agent.roll_2d6() + int(target_ship.difficulty//4)
-        if defense_roll >= 12:
+        defense_roll = dice_agent.roll_2d6() + difficulty_scaler
+        if defense_roll >= 12 + difficulty_scaler:
             target_escaped = True
         # Generate narrative prompt
         narrative_prompt = f"""
@@ -474,7 +475,7 @@ class ShipCombatAgent(GameMasterAgent):
         if target_escaped:
             target_ship.escaped = True
             return narrative, False
-        
+        bonus = np.random.choice([0, 1, 2])
         # Calculate damage and determine if ship is boardable
         if attack_roll >= 12:
             damage = 3
@@ -484,7 +485,7 @@ class ShipCombatAgent(GameMasterAgent):
             damage = 0
         
         # Apply damage
-        target_ship.hull -= damage
+        target_ship.hull -= damage + bonus
         
         # Check if ship is now boardable
         is_boardable = target_ship.hull <= 5
@@ -622,8 +623,8 @@ class BoardingCombatAgent(GameMasterAgent):
             damage = attack_roll - difficulty
         else:
             damage = 0
-            
-        target_ship.hull -= damage
+        goblin_bonus = random.choice([0, 1, best_stat])
+        target_ship.hull -= damage + goblin_bonus
         
         # Generate narrative prompt
         narrative_prompt = f"""
