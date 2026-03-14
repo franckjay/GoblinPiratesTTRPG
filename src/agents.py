@@ -1,7 +1,13 @@
 from abc import ABC, abstractmethod
 import os
+import random
+from typing import Tuple
 
-from openai import OpenAI
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from pydantic import BaseModel, Field
+import sys
 from dotenv import load_dotenv
 from .models import PlayerCharacter, TargetShip, GoblinShip
 from .generation_prompts.loot_prompt import loot_prompt
@@ -28,8 +34,17 @@ class GameMasterAgent(ABC):
         if not api_key:
             raise ValueError("OPENAI_API_KEY environment variable is not set")
         
-        self.client = OpenAI(api_key=api_key)
         self.model = "gpt-3.5-turbo"
+        self.client = ChatOpenAI(api_key=api_key, model=self.model, temperature=0.7, max_tokens=5000)
+        self.system_prompt = "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."
+        self.prompt_template = ChatPromptTemplate.from_messages([
+            ("system", self.system_prompt),
+            ("user", "{prompt}")
+        ])
+        self.chain = (self.prompt_template | self.client | StrOutputParser()).with_retry(stop_after_attempt=3)
+
+        # We manage context natively since older LangChain memory was deprecated.
+        self.memory: list[str] = []
         self.deep_research = deep_research
         self.max_iterations = max_iterations
     
@@ -80,19 +95,36 @@ class GameMasterAgent(ABC):
         Returns:
             str: The LLM's response
         """
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {"role": "system", "content": "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.7,
-            max_tokens=5000
-        )
-        return response.choices[0].message.content
+        # If not deep research, simply stream output and return final string
+        try:
+            full_response = ""
+            
+            # Gather memory context
+            history_context = "\n".join(self.memory)
+            
+            augmented_prompt = prompt
+            if history_context:
+                augmented_prompt = f"Previous Story Context:\n{history_context}\n\nNew Request:\n{prompt}"
+
+            for chunk in self.chain.stream({"prompt": augmented_prompt}):
+                print(chunk, end="", flush=True)
+                full_response += chunk
+            print() # Add a newline after the stream finishes
+
+            # Save to memory naturally
+            self.memory.append(f"User: {prompt}\nAgent: {full_response}")
+            
+            # Prune memory if it gets too large
+            while len(self.memory) > 5:
+                self.memory.pop(0)
+
+            return full_response
+        except Exception as e:
+            print(f"Error calling LLM: {e}")
+            return "I apologize, but I encountered an error processing your request."
     
     @abstractmethod
-    def parse_llm_response(self, response: str):
+    def parse_llm_response(self, response: str) -> str:
         raise NotImplementedError("Subclasses must implement this method")
 
 class DiceAgent:
@@ -240,11 +272,14 @@ class NarrativeAgent(GameMasterAgent):
         """
         
         self.current_story = self.call_llm(initial_prompt)
-        self.full_story = self._create_full_story()
         self.create_end_stage()
         return self.current_story
+    
+    def get_current_story_context(self) -> str:
+        """Helper to retrieve the current memory buffer summary."""
+        return "\n".join(self.memory)
 
-    def create_end_stage(self) -> None:
+    def create_end_stage(self) -> str:
         """
         Create a secret end stage narrative that will serve as the game's conclusion.
         
@@ -254,9 +289,9 @@ class NarrativeAgent(GameMasterAgent):
         end_stage_prompt = f"""
         Create a brief, secret end stage narrative for this goblin pirate adventure:
         
-        Goblin Characters: {self.character_stories}
-        Ship Story: {self.ship_story}
-        Current Story: {self.current_story}
+        Goblin Characters: The crew of goblins.
+        Ship Story: A tale of the goblin ship.
+        Current Story Context: {self.get_current_story_context()}
         
         Create a narrative that:
         1. Describes a satisfying conclusion to the goblins' journey
@@ -283,7 +318,7 @@ class NarrativeAgent(GameMasterAgent):
         end_check_prompt = f"""
         Based on the following information, determine if the goblin pirate adventure has reached a satisfying conclusion:
         
-        Current Story: {self.current_story}
+        Current Story Context: {self.get_current_story_context()}
         Intended End Stage: {self.end_stage}
         
         Consider:
@@ -298,59 +333,50 @@ class NarrativeAgent(GameMasterAgent):
         response = self.call_llm(end_check_prompt).strip().upper()
         return response == "YES"
 
-    def _create_full_story(self):
-        """Create the full story from the character, narrative, and ship stories"""
-        return f"This is a hilarious and fun-filled story about these goblins {self.character_stories} and their ship, {self.ship_story}. This is the story thus far: {self.current_story}"
-
     def append_to_story(self, new_content: str):
         """
-        Append new content to the story and update the full story.
-        If enough updates have occurred, trigger a story summarization.
-        
-        Args:
-            new_content (str): New story content to append
+        Append new external content to the story memory manually.
         """
-        # Append the new content with a separator
-        self.current_story += f"\n\n{new_content}"
-        
-        # Update the full story
-        self.full_story = self._create_full_story()
-        
-        # Increment counter and check if we should summarize
-        self.story_update_counter += 1
-        if self.story_update_counter >= self.max_updates_before_summary:
-            self._summarize_story()
-            self.story_update_counter = 0  # Reset counter
+        self.memory.append(f"Event: {new_content}")
 
-    def _summarize_story(self):
-        """
-        Use the LLM to create a concise summary of the full story,
-        preserving key narrative elements while reducing length.
-        """
-        summarization_prompt = f"""
-        Please create a concise summary of this goblin pirate adventure story, 
-        preserving the key narrative elements, character development, and important events.
-        The goal of this summary should be to inform the Game Master what has happened so far in the story,
-        and to preserve running jokes and gags.
+class CombatAgent(GameMasterAgent):
+    """Base class for combat agents to consolidate logic."""
+    def summarize_raid(self) -> str:
+        """Create a concise summary of the raid phase using the LLM and the memory buffer."""
+        summary_prompt = f"""
+        Create a concise and humorous summary of this goblin pirate raid:
         
-        Original story:
-        {self.full_story}
+        Full Raid Narrative Context:
+        {"\n".join(self.memory)}
         
-        Provide only the summarized story, with no additional commentary.
+        Create a summary that:
+        1. Captures the key events and turning points
+        2. Highlights the most memorable character actions
+        3. Includes the final outcome
+        4. Maintains the goblin pirate theme's humor
+        5. Is about 2-3 paragraphs long
+        
+        Focus on the most exciting and funny moments, and make it feel like a pirate's tale being retold in a tavern!
         """
         
         try:
-            summarized_story = self.call_llm(summarization_prompt)
-            self.current_story = summarized_story
-            self.full_story = self._create_full_story()
+            return self.call_llm(summary_prompt)
         except Exception as e:
-            print(f"Error during story summarization: {e}")
-            # If summarization fails, continue with the original story
-            pass
+            print(f"Error summarizing raid: {e}")
+            return "The raid was a wild adventure, but the details are a bit fuzzy after all that grog!"
 
+class TargetShipSchema(BaseModel):
+    narrative: str = Field(description="The descriptive narrative of the target ship")
+    difficulty: int = Field(description="The difficulty scale of the target ship from 2 to 12")
+    
 class BuildTargetShipAgent(GameMasterAgent):
     def __init__(self, deep_research: bool = False, max_iterations: int = 3):
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
+        # Create a specialized structured chain specifically for this agent
+        self.structured_chain = (
+            self.prompt_template
+            | self.client.with_structured_output(TargetShipSchema, method="function_calling")
+        ).with_retry(stop_after_attempt=3)
     
     def parse_llm_response(self, response: str) -> str:
         """
@@ -364,8 +390,8 @@ class BuildTargetShipAgent(GameMasterAgent):
             str: The unchanged response
         """
         return response
-        
-    def generate_target_ship(self, ship_difficulty: int, current_narrative: str) -> TargetShip:
+
+    def generate_target_ship(self, difficulty_hint: int, current_narrative: str) -> TargetShip:
         """
         Generate an enemy ship based on difficulty and current story context.
         
@@ -380,29 +406,30 @@ class BuildTargetShipAgent(GameMasterAgent):
         narrative_prompt = f"""
         Create a humorous and exciting description of an enemy ship that the goblins have spotted:
         
-        Ship Difficulty: {ship_difficulty} out of a maximum of 12
+        Suggested Difficulty Hint: {difficulty_hint} out of a maximum of 12
         Current Story Context: {current_narrative}
         
-        Create a narrative that:
-        1. Describes the ship's appearance and characteristics
+        Create a target ship that:
+        1. Describes the ship's appearance and characteristics in the narrative field
         2. Hints at what kind of cargo or treasure it might carry
-        3. Includes some humorous or interesting details about the ship
-        4. Fits the difficulty level (higher difficulty = more impressive ship)
-        5. Maintains the goblin pirate theme's humor
-        
-        Provide only the ship description, no additional commentary.
+        3. Sets a firm difficulty scale between 2 and 12 in the difficulty field based on how impressive it is
+        4. Maintains the goblin pirate theme's humor
         """
         
-        # Get narrative from LLM
-        narrative = self.call_llm(narrative_prompt)
-        
-        # Create and return the TargetShip
-        return TargetShip(ship_difficulty, narrative)
+        try:
+            # Get structured data from LLM
+            ship_data = self.structured_chain.invoke({"prompt": narrative_prompt})
+            
+            # Create and return the TargetShip using the structured output
+            return TargetShip(ship_data.difficulty, ship_data.narrative)
+        except Exception as e:
+            print(f"Error generating target ship: {e}")
+            # Fallback
+            return TargetShip(difficulty_hint, "A mysterious ship emerges from the fog!")
 
-class ShipCombatAgent(GameMasterAgent):
+class ShipCombatAgent(CombatAgent):
     def __init__(self, deep_research: bool = False, max_iterations: int = 3):
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
-        self.running_narrative = ""
     
     def parse_llm_response(self, response: str) -> str:
         """
@@ -417,7 +444,7 @@ class ShipCombatAgent(GameMasterAgent):
         """
         return response
         
-    def resolve_combat(self, attacking_ship: GoblinShip, target_ship: TargetShip, dice_agent: DiceAgent, player: PlayerCharacter, player_action: str) -> None:
+    def resolve_combat(self, attacking_ship: GoblinShip, target_ship: TargetShip, dice_agent: DiceAgent, player: PlayerCharacter, player_action: str):
         """
         Resolve a round of ship-to-ship combat.
         
@@ -433,7 +460,7 @@ class ShipCombatAgent(GameMasterAgent):
         """
         target_escaped = False
         # Roll for attack
-        difficulty_scaler = int(target_ship_difficulty//4)
+        difficulty_scaler = int(target_ship.difficulty//4)
         attack_roll = dice_agent.roll_2d6() + attacking_ship.cannons
         defense_roll = dice_agent.roll_2d6() + difficulty_scaler
         if defense_roll >= 12 + difficulty_scaler:
@@ -467,7 +494,7 @@ class ShipCombatAgent(GameMasterAgent):
         
         Provide only the narrative, no additional commentary. Think carefully about the narrative before responding, 
         and if a piece of information is not relevant to the action, don't include it. Here is what has happened so far:
-        {self.running_narrative}
+        {"\n".join(self.memory)}
         """
         
         # Get narrative from LLM
@@ -475,7 +502,7 @@ class ShipCombatAgent(GameMasterAgent):
         if target_escaped:
             target_ship.escaped = True
             return narrative, False
-        bonus = np.random.choice([0, 1, 2])
+        bonus = random.choice([0, 1, 2])
         # Calculate damage and determine if ship is boardable
         if attack_roll >= 12:
             damage = 3
@@ -492,8 +519,9 @@ class ShipCombatAgent(GameMasterAgent):
         if is_boardable:
             target_ship.boardable = True
             narrative += f"\nThe {target_ship.narrative} is now vulnerable to boarding!"
-        self.running_narrative += narrative
-        print(narrative)
+        
+        # Push event to memory
+        self.memory.append(f"Combat Action ({player_action}): {narrative}")
         return
 
     def generate_loot_narrative(self, total_loot: int, ship_size: str, character_stories: list[str]) -> str:
@@ -520,46 +548,11 @@ class ShipCombatAgent(GameMasterAgent):
         
         return self.call_llm(loot_prompt)
 
-    def summarize_raid(self) -> str:
-        """
-        Create a concise summary of the raid phase using the LLM.
-        
-        Args:
-            raid_narrative (str): The full narrative of the raid phase
-            
-        Returns:
-            str: A concise summary of the raid phase
-        """
-        summary_prompt = f"""
-        Create a concise and humorous summary of this goblin pirate raid:
-        
-        Full Raid Narrative:
-        {self.running_narrative}
-        
-        Create a summary that:
-        1. Captures the key events and turning points
-        2. Highlights the most memorable character actions
-        3. Includes the final outcome
-        4. Maintains the goblin pirate theme's humor
-        5. Is about 2-3 paragraphs long
-        
-        Focus on the most exciting and funny moments, and make it feel like a pirate's tale being retold in a tavern!
-        
-        Provide only the summary, no additional commentary.
-        """
-        
-        try:
-            return self.call_llm(summary_prompt)
-        except Exception as e:
-            print(f"Error summarizing raid: {e}")
-            return "The raid was a wild adventure, but the details are a bit fuzzy after all that grog!"
-
-class BoardingCombatAgent(GameMasterAgent):
+class BoardingCombatAgent(CombatAgent):
     def __init__(self, character_stories: list[str], ship_story: str, deep_research: bool = False, max_iterations: int = 3):
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
         self.character_stories = character_stories
         self.ship_story = ship_story
-        self.running_narrative = ""
 
     def parse_llm_response(self, response: str) -> str:
         """
@@ -623,7 +616,7 @@ class BoardingCombatAgent(GameMasterAgent):
             damage = attack_roll - difficulty
         else:
             damage = 0
-        goblin_bonus = random.choice([0, 1, best_stat])
+        goblin_bonus = random.choice([0, 1, best_stat[1]])
         target_ship.hull -= damage + goblin_bonus
         
         # Generate narrative prompt
@@ -652,45 +645,12 @@ class BoardingCombatAgent(GameMasterAgent):
         5. Maintains the goblin pirate theme's humor
         
         Provide only the narrative, no additional commentary. Here is the running narrative so far, if any:
-        {self.running_narrative}
+        {"\n".join(self.memory)}
         """
         
         # Get narrative from LLM
         narrative = self.call_llm(narrative_prompt)
-        print(narrative)
-        self.running_narrative += narrative
+        
+        # Save context to memory
+        self.memory.append(f"Boarding Action ({player_action}): {narrative}")
         return None
-    
-    def summarize_raid(self) -> str:
-        """
-        Create a concise summary of the raid phase using the LLM.
-        
-        Args:
-            raid_narrative (str): The full narrative of the raid phase
-            
-        Returns:
-            str: A concise summary of the raid phase
-        """
-        summary_prompt = f"""
-        Create a concise and humorous summary of this goblin pirate raid:
-        
-        Full Raid Narrative:
-        {self.running_narrative}
-        
-        Create a summary that:
-        1. Captures the key events and turning points
-        2. Highlights the most memorable character actions
-        3. Includes the final outcome
-        4. Maintains the goblin pirate theme's humor
-        5. Is about 2-3 paragraphs long
-        
-        Focus on the most exciting and funny moments, and make it feel like a pirate's tale being retold in a tavern!
-        
-        Provide only the summary, no additional commentary.
-        """
-        
-        try:
-            return self.call_llm(summary_prompt)
-        except Exception as e:
-            print(f"Error summarizing raid: {e}")
-            return "The raid was a wild adventure, but the details are a bit fuzzy after all that grog!"

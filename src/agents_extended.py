@@ -1,8 +1,10 @@
 import os
 import subprocess
 from .agents import GameMasterAgent
-import ollama
-from google import genai
+from langchain_community.chat_models import ChatOllama
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 
 class DeepSeekAgent(GameMasterAgent):
     """
@@ -62,20 +64,13 @@ class DeepSeekAgent(GameMasterAgent):
             str: The model's response
         """
         try:
-            response = ollama.chat(
-                model=self.model,
-                messages=[
-                    {
-                        'role': 'system',
-                        'content': "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."
-                    },
-                    {
-                        'role': 'user',
-                        'content': prompt
-                    }
-                ]
-            )
-            return response['message']['content']
+            client = ChatOllama(model=self.model)
+            prompt_template = ChatPromptTemplate.from_messages([
+                ("system", "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."),
+                ("user", "{prompt}")
+            ])
+            chain = prompt_template | client | StrOutputParser()
+            return chain.invoke({"prompt": prompt})
         except Exception as e:
             print(f"Error calling DeepSeek model: {e}")
             return "I apologize, but I encountered an error processing your request."
@@ -109,7 +104,12 @@ class GeminiAgent(GameMasterAgent):
         """
         super().__init__(deep_research=deep_research, max_iterations=max_iterations)
         self.model = "gemini-2.5-pro-exp-03-25"
-        self.client = genai.Client(api_key=api_key)
+        self.client = ChatGoogleGenerativeAI(model=self.model, google_api_key=api_key)
+        self.prompt_template = ChatPromptTemplate.from_messages([
+            ("system", "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."),
+            ("user", "{prompt}")
+        ])
+        self.chain = self.prompt_template | self.client | StrOutputParser()
     
     def _single_call(self, prompt: str) -> str:
         """
@@ -122,29 +122,7 @@ class GeminiAgent(GameMasterAgent):
             str: The model's response
         """
         try:
-            # Create the system message and user message
-            messages = [
-                {
-                    'role': 'system',
-                    'content': "You are a creative and humorous Game Master for a goblin pirate-themed TTRPG."
-                },
-                {
-                    'role': 'user',
-                    'content': prompt
-                }
-            ]
-            
-            # Convert messages to Gemini format
-            contents = "\n".join([f"{msg['role']}: {msg['content']}" for msg in messages])
-            
-            # Generate response
-            response = self.client.models.generate_content(
-                model=self.model,
-                contents=contents
-            )
-            
-            return response.text
-            
+            return self.chain.invoke({"prompt": prompt})
         except Exception as e:
             print(f"Error calling Gemini model: {e}")
             return "I apologize, but I encountered an error processing your request."
